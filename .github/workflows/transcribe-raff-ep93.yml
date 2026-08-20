@@ -1,100 +1,10 @@
-name: Transcribe Raff Ep93
+name: Transcribe Raff Ep93 (completed)
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
-  transcribe:
+  archived:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
     steps:
-      - name: Install transcription dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install faster-whisper
-
-      - name: Fetch publisher audio
-        run: |
-          curl -L --fail --retry 5 --retry-delay 2 \
-            -o raff-ep93.mp3 \
-            'https://mcdn.podbean.com/mf/web/pkhddr2mhtehtqdk/93-RAFF-FINAL-STREAM.mp3'
-          ls -lh raff-ep93.mp3
-
-      - name: Transcribe with timestamps and keyword index
-        run: |
-          cat > transcribe.py <<'PY'
-          import json
-          from pathlib import Path
-          from faster_whisper import WhisperModel
-
-          AUDIO = 'raff-ep93.mp3'
-          keywords = [
-              'rose','rosie','rosy','rosemarie','rosmarie','rosemary',
-              'apprentice','apprenticeship','creator','private','studio',
-              '2022','2023','2024','girl','woman','female','left','leave','crew',
-              'brandon','kenny','peyton','payton','mike','mikey','garrett','garret'
-          ]
-
-          def stamp(seconds):
-              seconds = max(0, int(seconds))
-              h, rem = divmod(seconds, 3600)
-              m, s = divmod(rem, 60)
-              return f'{h:02d}:{m:02d}:{s:02d}'
-
-          model = WhisperModel('base.en', device='cpu', compute_type='int8', cpu_threads=4)
-          segments_iter, info = model.transcribe(
-              AUDIO,
-              language='en',
-              beam_size=5,
-              vad_filter=True,
-              condition_on_previous_text=True,
-          )
-          segments = []
-          for seg in segments_iter:
-              text = seg.text.strip()
-              segments.append({'start': float(seg.start), 'end': float(seg.end), 'text': text})
-
-          Path('transcript.txt').write_text('\n'.join(
-              f"[{stamp(s['start'])}] {s['text']}" for s in segments
-          ) + '\n', encoding='utf-8')
-          Path('transcript.json').write_text(json.dumps({
-              'language': getattr(info, 'language', 'en'),
-              'duration': getattr(info, 'duration', None),
-              'model': 'base.en / faster-whisper int8',
-              'segments': segments,
-          }, ensure_ascii=False, indent=2), encoding='utf-8')
-
-          hits = []
-          for i, seg in enumerate(segments):
-              low = seg['text'].lower()
-              matched = sorted({k for k in keywords if k in low})
-              if matched:
-                  context = ' '.join(x['text'] for x in segments[max(0,i-1):min(len(segments),i+2)])
-                  hits.append({'timestamp': stamp(seg['start']), 'start': seg['start'], 'keywords': matched, 'segment': seg['text'], 'context': context})
-          Path('keyword_hits.txt').write_text('\n\n'.join(
-              f"[{h['timestamp']}] {', '.join(h['keywords'])}\n{h['context']}" for h in hits
-          ) + '\n', encoding='utf-8')
-          Path('keyword_hits.json').write_text(json.dumps(hits, ensure_ascii=False, indent=2), encoding='utf-8')
-          print(f'Transcribed {len(segments)} segments; {len(hits)} keyword-hit segments.')
-          PY
-          python transcribe.py
-
-      - name: Upload transcript artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: raff-ep93-transcript
-          path: |
-            transcript.txt
-            transcript.json
-            keyword_hits.txt
-            keyword_hits.json
-          retention-days: 7
+      - run: echo 'Full Ep.93 transcription already completed; workflow parked.'
