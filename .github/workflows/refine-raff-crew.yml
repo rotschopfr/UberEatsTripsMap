@@ -1,0 +1,65 @@
+name: Refine Raff crew-list audio
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - REFINE_RAFF.txt
+
+permissions:
+  contents: read
+
+jobs:
+  refine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Install tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install faster-whisper
+
+      - name: Fetch and cut source audio
+        run: |
+          curl -L --fail --retry 5 --retry-delay 2 -o raff.mp3 'https://mcdn.podbean.com/mf/web/pkhddr2mhtehtqdk/93-RAFF-FINAL-STREAM.mp3'
+          ffmpeg -hide_banner -loglevel error -ss 00:29:10 -to 00:30:20 -i raff.mp3 -ac 1 -ar 16000 crew.wav
+          ffmpeg -hide_banner -loglevel error -ss 00:32:30 -to 00:33:20 -i raff.mp3 -ac 1 -ar 16000 apprentice.wav
+
+      - name: High-accuracy targeted transcription
+        run: |
+          cat > refine.py <<'PY'
+          import json
+          from pathlib import Path
+          from faster_whisper import WhisperModel
+
+          model = WhisperModel('small.en', device='cpu', compute_type='int8', cpu_threads=4)
+          results = {}
+          out = []
+          for label, fn, offset in [
+              ('CREW LIST 29:10–30:20', 'crew.wav', 29*60+10),
+              ('APPRENTICE 32:30–33:20', 'apprentice.wav', 32*60+30),
+          ]:
+              segs, info = model.transcribe(fn, language='en', beam_size=5, vad_filter=False, condition_on_previous_text=False)
+              rows=[]
+              out.append('\n=== '+label+' ===')
+              for s in segs:
+                  absolute=offset+float(s.start)
+                  m=int(absolute//60); sec=int(absolute%60)
+                  text=s.text.strip()
+                  rows.append({'absolute_seconds': absolute, 'text': text})
+                  out.append(f'[{m:02d}:{sec:02d}] {text}')
+              results[label]=rows
+          Path('refined.txt').write_text('\n'.join(out)+'\n', encoding='utf-8')
+          Path('refined.json').write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding='utf-8')
+          print(Path('refined.txt').read_text(encoding='utf-8'))
+          PY
+          python refine.py
+
+      - name: Upload refinement artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: raff-crew-refinement
+          path: |
+            refined.txt
+            refined.json
+          retention-days: 7
