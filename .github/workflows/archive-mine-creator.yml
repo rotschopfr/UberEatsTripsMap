@@ -1,0 +1,81 @@
+name: Mine archived Creator social residue
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ARCHIVE_MINE.txt
+
+permissions:
+  contents: read
+
+jobs:
+  mine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fetch raw Wayback snapshots
+        run: |
+          curl -L --fail --retry 5 --retry-delay 2 -A 'Mozilla/5.0' -o creator-20240902.html 'https://web.archive.org/web/20240902232905id_/http://creatortattooparlor.com/'
+          curl -L --fail --retry 5 --retry-delay 2 -A 'Mozilla/5.0' -o creator-20250104.html 'https://web.archive.org/web/20250104141037id_/https://creatortattooparlor.com/'
+          wc -c creator-*.html
+
+      - name: Parse embedded social data
+        run: |
+          cat > mine.py <<'PY'
+          import re, html as htmllib, json
+          from pathlib import Path
+
+          files = ['creator-20240902.html','creator-20250104.html']
+          out=[]
+          interesting_urls=set()
+          handles=set()
+          for fn in files:
+              raw=Path(fn).read_text(errors='replace')
+              decoded=htmllib.unescape(raw)
+              out.append(f'\n===== {fn} bytes={len(raw)} =====')
+              # plugin / feed fingerprints
+              for pat in ['instagram','spotlight','smash','sbi','insta','feed','Featured artist','featured artist']:
+                  cnt=len(re.findall(re.escape(pat), decoded, flags=re.I))
+                  out.append(f'COUNT {pat}: {cnt}')
+              # contexts around the key phrase
+              for m in re.finditer(r'featured\s+artist', decoded, flags=re.I):
+                  s=max(0,m.start()-5000); e=min(len(decoded),m.end()+5000)
+                  ctx=decoded[s:e]
+                  out.append('\n--- FEATURED ARTIST CONTEXT ---\n'+ctx+'\n--- END CONTEXT ---')
+              # every plausible @handle
+              for x in re.findall(r'(?<![\w.])@([A-Za-z0-9._]{2,40})', decoded):
+                  handles.add(x)
+              # URLs, especially Instagram / image CDN / social plugin API
+              for u in re.findall(r'https?://[^\s"\'<>\\]+', decoded):
+                  u=u.rstrip('),.;]')
+                  low=u.lower()
+                  if any(k in low for k in ['instagram','cdninstagram','fbcdn','scontent','facebook','creatortattoo','api','media']):
+                      interesting_urls.add(u)
+              # common attributes/keys around social embeds
+              for keypat in [
+                  r'data-instgrm-permalink\s*=\s*["\']([^"\']+)',
+                  r'instagram\.com/(?:p|reel)/([A-Za-z0-9_-]+)',
+                  r'"shortcode"\s*:\s*"([^"]+)"',
+                  r'"media_id"\s*:\s*"?([0-9]+)"?',
+                  r'"id"\s*:\s*"(17[0-9]{10,})"',
+              ]:
+                  vals=re.findall(keypat, decoded, flags=re.I)
+                  if vals: out.append(f'KEYPAT {keypat}: {vals[:100]}')
+          out.append('\n===== ALL HANDLES =====\n'+'\n'.join(sorted(handles,key=str.lower)))
+          out.append('\n===== INTERESTING URLS =====\n'+'\n'.join(sorted(interesting_urls)))
+          report='\n'.join(out)
+          Path('creator-archive-report.txt').write_text(report, encoding='utf-8')
+          print(report[:60000])
+          PY
+          python mine.py
+
+      - name: Upload archive-mining artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: creator-archive-mine
+          path: |
+            creator-archive-report.txt
+            creator-20240902.html
+            creator-20250104.html
+          retention-days: 7
