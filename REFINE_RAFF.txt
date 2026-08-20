@@ -1,1 +1,1 @@
-Refine 29:10–30:20 crew list and 32:30–33:20 apprentice segment.
+Refine 29:10–30:20 crew list and 32:30–33:20 apprentice segment. Retry after ffmpeg install fix.
